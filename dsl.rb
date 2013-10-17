@@ -1,6 +1,55 @@
 require "open3"
+require "fileutils"
 
 class SetupNitrous
+  def self.find_os
+    if `which parts`.empty?
+      return :chromeos
+    else
+      return :nitrous
+    end
+  end
+
+  PACKAGES = {
+    binaries: {
+      "curl" => "curl",
+      "zsh" => "zsh",
+      "vim" => "vim",
+      "rust" => "rustc",
+      "phantomjs" => "phantomjs",
+      "postgresql" => "psql"
+    },
+
+    chromeos: {
+      "curl" => "curl",
+      "zsh" => "zsh",
+      "vim" => "vim",
+      "rust" => "rust-nightly",
+      "phantomjs" => "phantomjs",
+      "postgresql" => "postgresql"
+    },
+
+    nitrous: {
+      "curl" => "curl",
+      "zsh" => "zsh",
+      "vim" => "vim",
+      "rust" => "rust",
+      "phantomjs" => "phantomjs",
+      "postgresql" => "postgresql"
+    }
+  }
+
+  PACKAGE_PREREQ = {
+    chromeos: {
+      "rust" => "sudo add-apt-repository ppa:hansjorg/rust && sudo apt-get update"
+    }
+  }
+
+  PACKAGE_INSTALL = {
+    nitrous: "parts install %{package}",
+    chromeos: "sudo apt-get install %{package} --assume-yes"
+  }
+
   def self.begin(data, &block)
     data = data.read.scan(/^# (.*)\n\n((?:.|\n(?!\n))*)/)
     files = data.inject({}) do |hash, (key,value)|
@@ -16,15 +65,41 @@ class SetupNitrous
     end
 
     def initialize(data)
-      @data = data
+      @data   = data
+      @os     = SetupNitrous.find_os
+      @indent = ""
+
+      if @os == :chromeos
+        dependency "software-properties-common"
+      end
     end
+
+    def dependency(package)
+      run "Installing #{package}" do
+        name = PACKAGES[@os][package] || package
+
+        test succeeds?("which #{PACKAGES[:binaries][package]}")
+
+        setup do
+          if prereq = PACKAGE_PREREQ[@os][package]
+            command prereq
+          end
+
+          command PACKAGE_INSTALL[@os] % { package: name }
+        end
+      end
+    end
+
+    alias package dependency
 
     def run(command)
       @failure = @setup = @update = @converge = nil
       @test = true
 
-      puts "\e[0;32m#{command}\e[0m"
-      yield
+      say "\e[0;32m#{command}\e[0m"
+
+      indent { yield }
+      puts
     end
 
     def test(bool)
@@ -36,18 +111,18 @@ class SetupNitrous
     end
 
     def setup
-      puts "\e[0;32mAlready set up\e[0m" if @test
+      say "\e[0;32mAlready set up\e[0m" if @test
       yield unless @test
     end
 
     def update(&block)
-      puts "\e[0;32mUpdating...\e[0m" unless @test
-      yield if @test
+      say "\e[0;32mUpdating...\e[0m" if @test
+      indent { yield } if @test
     end
 
     def converge(&block)
-      puts "\e[0;32mConverging...\e[0m"
-      yield
+      say "\e[0;32mConverging...\e[0m"
+      indent { yield }
     end
 
     def parts_install(package)
@@ -60,30 +135,65 @@ class SetupNitrous
     end
 
     def command(command)
+      say "Running \e[0;33m#{command}\e[0m:"
+      
       columns = `tput cols`.to_i
 
-      Open3.popen2e("#{command}") do |stdin, out, wait|
-        out.each_line do |line|
-          line = line[0...columns].chomp
-          padding = " " * (columns - line.size)
-          print "#{line}#{padding}\r"
-        end
+      outputs = []
 
-        print "\n"
+      indent do
+        Open3.popen2e("#{command}") do |stdin, out, wait|
+          out.each_line do |line|
+            line = line[0...columns].chomp
+            padding = " " * (columns - line.size - @indent.size)
+            output = "#{@indent}#{line}#{padding}"
+            outputs << output
+            print "#{output}\r"
+          end
 
-        status = wait.value
+          final = "Done."
+          padding = " " * (columns - final.size - @indent.size)
+          puts "#{@indent}\e[0;33m#{final}\e[0m#{padding}"
 
-        if status != 0
-          puts "\e[0;31mCommand failed with error code #{status}\e[0m"
-          @failure ? @failure[status] : exit
+          print "\n"
+
+          status = wait.value
+
+          if status != 0
+            say "\e[0;31mCommand failed with error code #{status}\e[0m"
+            puts
+            puts "\e[0;31mTrace\e[0m:"
+            puts outputs.join("\n")
+            exit
+          end
         end
       end
     end
 
-    def copy(name)
-      File.open(File.expand_path(name), "w") do |file|
-        file.puts @data[name]
+    def copy(name, dest=nil)
+      if dest
+        FileUtils.cp(File.expand_path(name), File.expand_path(dest))
+      else
+        File.open(File.expand_path(name), "w") do |file|
+          file.puts @data[name]
+        end
       end
+    end
+
+  private
+    def say(string)
+      puts "#{@indent}#{string}"
+    end
+
+    def indent
+      @indent += "  "
+      yield
+      @indent.slice!(0, 2)
+    end
+
+    def succeeds?(command)
+      `#{command}`
+      $?.exitstatus.zero?
     end
   end
 end

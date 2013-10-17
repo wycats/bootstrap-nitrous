@@ -1,6 +1,29 @@
 require_relative "./dsl"
 
 SetupNitrous.begin(DATA) do
+  dependency "curl"
+  dependency "zsh"
+  dependency "vim"
+
+  run "Downloading oh-my-zsh" do
+    oh_my_zsh = File.expand_path("~/.oh-my-zsh")
+
+    test File.exist?(oh_my_zsh)
+
+    setup do
+      command "git clone git://github.com/robbyrussell/oh-my-zsh.git ~/.oh-my-zsh"
+      copy "~/.oh-my-zsh/templates/zshrc.zsh-template", "~/.zshrc"
+    end
+
+    update do
+      Dir.chdir(oh_my_zsh) { command "git pull" }
+    end
+
+    converge do
+      copy "~/.oh-my-zsh/custom/wycats.zsh"
+    end
+  end
+
   run "Downloading Janus" do
     vim = File.expand_path("~/.vim")
 
@@ -8,6 +31,10 @@ SetupNitrous.begin(DATA) do
 
     setup do
       command "git clone --recursive --progress https://github.com/carlhuda/janus.git #{vim}"
+    end
+
+    update do
+      Dir.chdir(vim) { command "git pull" }
     end
 
     converge do
@@ -23,17 +50,10 @@ SetupNitrous.begin(DATA) do
     copy "~/.tmux.conf"
   end
 
-  run "Installing Rust" do
-    parts_install "rust"
-  end
-
-  run "Installing PhantomJS" do
-    parts_install "phantomjs"
-  end
-
-  run "Installing Postgres" do
-    parts_install "postgresql"
-  end
+  package "tmux"
+  package "rust"
+  package "phantomjs"
+  package "postgresql"
 
   run "Setting git identity and configuration" do
     command "git config --global user.email 'wycats@gmail.com'"
@@ -64,3 +84,7 @@ set -g mouse-mode on
 set -g mouse-select-pane on
 set -g mouse-resize-pane on
 set -g mouse-select-window on
+
+# ~/.oh-my-zsh/custom/wycats.zsh
+
+export TERM=xterm
