@@ -17,7 +17,8 @@ class SetupNitrous
       "vim" => "vim",
       "rust" => "rustc",
       "phantomjs" => "phantomjs",
-      "postgresql" => "psql"
+      "postgresql" => "psql",
+      "tmux" => "tmux"
     },
 
     chromeos: {
@@ -76,12 +77,12 @@ class SetupNitrous
 
     def dependency(package)
       run "Installing #{package}" do
-        name = PACKAGES[@os][package] || package
+        name = PACKAGES[@os] && PACKAGES[@os][package] || package
 
         test succeeds?("which #{PACKAGES[:binaries][package]}")
 
         setup do
-          if prereq = PACKAGE_PREREQ[@os][package]
+          if prereq = PACKAGE_PREREQ[@os] && PACKAGE_PREREQ[@os][package]
             command prereq
           end
 
@@ -144,7 +145,7 @@ class SetupNitrous
       indent do
         Open3.popen2e("#{command}") do |stdin, out, wait|
           out.each_line do |line|
-            line = line[0...columns].chomp
+            line = line[0...(columns - @indent.size)].chomp
             padding = " " * (columns - line.size - @indent.size)
             output = "#{@indent}#{line}#{padding}"
             outputs << output
